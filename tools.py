@@ -11,7 +11,8 @@ from dbutils import (
     search_wikipedia_term,
     ingest_wikipedia_page,
     load_faiss,
-    query_rag,
+    query_faiss,
+    query_fts,
 )
 
 
@@ -22,7 +23,11 @@ def chat(prompt, with_tools=False):
             "messages": [
                 {
                     "role": "system",
-                    "content": "Double check an answer with the lazy loading RAG embeddings. Indicate if this is not possible.",
+                    "content": "Double check an answer with embeddings, which are loaded lazily."
+                    # "At least query the local Wikipedia FTS chunk index or embeddings."
+                    "At least query the local Wikipedia chunk embeddings."
+                    "Additionally search the local Wikipedia FTS page index to ingest missing pages if appropriate."
+                    "Indicate if RAG results are still not available.",
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -32,14 +37,50 @@ def chat(prompt, with_tools=False):
                 {
                     "type": "function",
                     "function": {
+                        "name": "query_faiss",
+                        "description": "Queries the RAG knowledge base (e.g., ingested Wikipedia markdown sections) using semantic retrieval to return relevant context chunks for answering a question.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "prompt": {
+                                    "type": "string",
+                                    "description": "Natural language question",
+                                },
+                            },
+                            "required": ["prompt"],
+                        },
+                    },
+                },
+                # {
+                #     "type": "function",
+                #     "function": {
+                #         "name": "query_fts",
+                #         "description": "Queries the RAG knowledge base (e.g., ingested Wikipedia markdown sections) using lexical retrieval to return relevant context chunks for answering a question.",
+                #         "parameters": {
+                #             "type": "object",
+                #             "properties": {
+                #                 "term": {
+                #                     "type": "string",
+                #                     "description": "Search term used in SQLite FTS MATCH query containing logical operators like AND/OR",
+                #                 },
+                #             },
+                #             "required": ["term"],
+                #         },
+                #     },
+                # },
+                {
+                    "type": "function",
+                    "function": {
                         "name": "search_wikipedia_term",
-                        "description": "Performs a SQLite FTS5 full-text search over locally indexed Wikipedia page metadata (project names and page titles). Does not call Wikipedia APIs.",
+                        "description": "Performs a SQLite FTS5 full-text search over locally indexed Wikipedia page metadata (project names and page titles)."
+                        "Returns metadata for the pages including the HTTP status of the page ingestion."
+                        "Does not call Wikipedia APIs.",
                         "parameters": {
                             "type": "object",
                             "properties": {
                                 "term": {
                                     "type": "string",
-                                    "description": "Search term used in SQLite FTS MATCH query",
+                                    "description": "Search term used in SQLite FTS MATCH query containing logical operators like AND/OR",
                                 }
                             },
                         },
@@ -65,23 +106,6 @@ def chat(prompt, with_tools=False):
                             },
                         },
                         "required": ["project_name", "page_name"],
-                    },
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "query_rag",
-                        "description": "Queries the RAG knowledge base (e.g., ingested Wikipedia markdown sections) using semantic and/or lexical retrieval to return relevant context chunks for answering a question.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "prompt": {
-                                    "type": "string",
-                                    "description": "Natural language question or query",
-                                },
-                            },
-                            "required": ["prompt"],
-                        },
                     },
                 },
             ]
@@ -132,9 +156,21 @@ def chat(prompt, with_tools=False):
                                     }
                                 )
                                 done = False
-                            elif tool_call["function"]["name"] == "query_rag":
-                                texts = query_rag(
+                            elif tool_call["function"]["name"] == "query_faiss":
+                                texts = query_faiss(
                                     index, tool_call["function"]["arguments"]["prompt"]
+                                )
+                                payload["messages"].append(
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": tool_call["id"],
+                                        "content": json.dumps(texts),
+                                    }
+                                )
+                                done = False
+                            elif tool_call["function"]["name"] == "query_fts":
+                                texts = query_fts(
+                                    tool_call["function"]["arguments"]["term"]
                                 )
                                 payload["messages"].append(
                                     {

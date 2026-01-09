@@ -9,7 +9,6 @@ from dbutils import (
     load_faiss,
     query_rag,
 )
-from llmutils import embed_one, embed_multiple
 
 
 def generate(prompt):

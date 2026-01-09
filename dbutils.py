@@ -83,27 +83,48 @@ def load_faiss():
         return update_faiss(connection, index)
 
 
-def query_rag(index, prompt, k=5):
-    print("query_rag", prompt, flush=True)
+def query_faiss(index, prompt, k=5):
+    print("query_faiss", prompt, flush=True)
     texts = []
-    # status, embedding = embed_one("search_query: ", prompt)
-    status, embedding = embed_one("", prompt)
-    if status == 200:
-        query = np.array(embedding, dtype="float32").reshape(1, -1)
-        faiss.normalize_L2(query)
-        D, I = index.search(query, k=k)
-        print(D, flush=True)
-        with sqlite3.connect("data/rag.db") as connection:
-            for distance, chunk_id in zip(D[0], I[0]):
-                if (not texts and distance >= 0.5) or distance >= 0.6:
-                    cursor = connection.cursor()
-                    for (text,) in cursor.execute(
-                        "SELECT text FROM chunks WHERE id = ?",
-                        [int(chunk_id)],
-                    ):
-                        texts.append(text)
-        print(texts, flush=True)
-        return texts
+    with sqlite3.connect("data/rag.db") as connection:
+        # status, embedding = embed_one("search_query: ", prompt)
+        status, embedding = embed_one("", prompt)
+        if status == 200:
+            query = np.array(embedding, dtype="float32").reshape(1, -1)
+            faiss.normalize_L2(query)
+            D, I = index.search(query, k=k)
+            print(D, flush=True)
+            cursor = connection.cursor()
+            for distance, id in zip(D[0], I[0]):
+                for (text,) in cursor.execute(
+                    "SELECT text FROM chunks WHERE id = ?",
+                    [int(id)],
+                ):
+                    if (not texts and distance >= 0.5) or distance >= 0.6:
+                        if text not in texts:
+                            texts.append(text)
+    print(texts, flush=True)
+    return texts
+
+
+def query_fts(term, k=5):
+    print("query_fts", term, flush=True)
+    texts = []
+    with sqlite3.connect("data/rag.db") as connection:
+        cursor = connection.cursor()
+        for id, text, rank in cursor.execute(
+            "SELECT chunks.id as chunk_id, chunks.text, chunks_fts.rank "
+            "FROM chunks "
+            "INNER JOIN chunks_fts ON chunks_fts.rowid = chunks.id "
+            "WHERE chunks_fts.text MATCH ? "
+            "ORDER BY chunks_fts.rank "
+            "LIMIT ?",
+            [term.replace("?", ""), k],
+        ):
+            if text not in texts:
+                texts.append(text)
+    print(texts, flush=True)
+    return texts
 
 
 def search_wikipedia_term(term, min_views=1_000, k=5):
@@ -124,9 +145,9 @@ def search_wikipedia_term(term, min_views=1_000, k=5):
             "INNER JOIN pages_fts ON pages_fts.rowid = pages.id "
             "WHERE pages_fts.name MATCH ? "
             "AND pages.views >= ? "
-            "ORDER BY rank, views DESC "
+            "ORDER BY pages_fts.rank, pages.views DESC "
             "LIMIT ?",
-            [term, min_views, k],
+            [term.replace("?", ""), min_views, k],
         ):
             pages.append(
                 {
@@ -150,7 +171,7 @@ def get_and_update_wikipedia_page(connection, page_id, project_name, page_name):
         "UPDATE pages SET status = ?, html = ? WHERE id = ?",
         [status, html_compressed, page_id],
     )
-    return status, html
+    return status, html_compressed
 
 
 def scrape_wikipedia_pages(limit):
@@ -162,7 +183,7 @@ def scrape_wikipedia_pages(limit):
             project_name,
             page_name,
             status,
-            html,
+            html_compressed,
         ) in cursor.execute(
             "SELECT pages.id as page_id, projects.name as project_name, pages.name as page_name, pages.status as status, pages.html as html "
             "FROM pages INNER JOIN projects on pages.project_id = projects.id "
@@ -171,7 +192,7 @@ def scrape_wikipedia_pages(limit):
         ):
             if status:
                 continue
-            status, html = get_and_update_wikipedia_page(
+            status, html_compressed = get_and_update_wikipedia_page(
                 connection, page_id, project_name, page_name
             )
             count += 1
@@ -264,7 +285,7 @@ def ingest_wikipedia_page(index, project_name, page_name):
             [project_name, page_name],
         ):
             if not status:
-                status, html = get_and_update_wikipedia_page(
+                status, html_compressed = get_and_update_wikipedia_page(
                     connection, page_id, project_name, page_name
                 )
             if html_compressed and not markdown:
