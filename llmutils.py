@@ -41,6 +41,49 @@ def embed_multiple(tip, documents_or_queries):
     return status, embeddings
 
 
+def generate_stream(prompt):
+    try:
+        with urllib.request.urlopen(
+            "http://localhost:11434/api/generate",
+            data=json.dumps(
+                {"model": "qwen3", "prompt": prompt, "stream": True}
+            ).encode("utf-8"),
+        ) as response:
+            status = response.status
+            for line in response:
+                answer = json.loads(line)
+                if "thinking" in answer:
+                    assert not answer["response"]
+                    yield status, answer["thinking"], None
+                elif "response" in answer:
+                    assert "thinking" not in answer
+                    yield status, None, answer["response"]
+    except HTTPError as e:
+        yield e.status, None, None
+
+
+def generate(prompt):
+    try:
+        with urllib.request.urlopen(
+            "http://localhost:11434/api/generate",
+            data=json.dumps(
+                {"model": "qwen3", "prompt": prompt, "stream": False}
+            ).encode("utf-8"),
+        ) as response:
+            status = response.status
+            thinking = ""
+            content = ""
+            for line in response:
+                answer = json.loads(line)
+                if "thinking" in answer:
+                    thinking += answer["thinking"]
+                if "response" in answer:
+                    content += answer["response"]
+    except HTTPError as e:
+        return e.status, None, None
+    return status, thinking, content
+
+
 def chat_stream(system_prompt, user_prompt, tools=None):
     try:
         payload = {
@@ -103,7 +146,6 @@ def chat_stream(system_prompt, user_prompt, tools=None):
                                     )
                                     pending = True
                                     break
-                print(pending, done)    
     except HTTPError as e:
         yield e.status, None, None
 
@@ -143,7 +185,6 @@ def chat(system_prompt, user_prompt, tools=None):
             ) as response:
                 pending = False
                 status = response.status
-                # for line in response.read().decode("utf-8").splitlines():
                 for line in response:
                     answer = json.loads(line)
                     message = answer["message"]

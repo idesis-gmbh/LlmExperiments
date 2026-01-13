@@ -1,37 +1,29 @@
-import json
-from urllib.error import HTTPError
-import urllib.request
 import sys
 from dbutils import (
     load_wikipedia_pageviews,
     scrape_wikipedia_pages,
     extract_wikipedia_sections,
     load_faiss,
-    query_rag,
+    query_faiss,
+    query_fts,
 )
+from llmutils import generate, generate_stream
 
 
-def generate(prompt):
-    try:
-        with urllib.request.urlopen(
-            "http://localhost:11434/api/generate",
-            data=json.dumps({"model": "qwen3", "prompt": prompt}).encode("utf-8"),
-        ) as response:
-            status = response.status
-            thinking = ""
-            result = ""
-            for line in response.read().decode("utf-8").splitlines():
-                answer = json.loads(line)
-                if "thinking" in answer:
-                    thinking += answer["thinking"]
-                else:
-                    result += answer["response"]
-    except HTTPError as e:
-        status = e.status
-        thinking = None
-        result = None
-    return status, thinking, result
+def run_generate(prompt):
+    print(prompt)
+    status, thinking, content = generate(prompt)
+    print(status, thinking, content)
 
+
+def run_generate_stream(prompt):
+    print(prompt)
+    for status, thinking, content in generate_stream(prompt):
+        assert status == 200
+        if thinking:
+            print(thinking, end="", flush=True)
+        elif content:
+            print(content, end="", flush=True)
 
 if __name__ == "__main__":
     if "load_wikipedia_pageviews" in sys.argv[1:]:
@@ -49,29 +41,28 @@ if __name__ == "__main__":
         # "Who was the first woman to win a Nobel Prize, and in which field?",
         # "What is the capital of Mongolia, and what was its former name?",
     ]:
-        if "simple" in sys.argv[1]:
-            print("Basic prompt:", basic_prompt, flush=True)
-            status, thinking, result = generate(basic_prompt)
-            print("Thinking about basic prompt:", thinking, flush=True)
-            print("Answer to basic prompt:", result, flush=True)
+        if "generate" in sys.argv[1]:
+            run_generate(basic_prompt)
+        if "generate_stream" in sys.argv[1]:
+            run_generate_stream(basic_prompt)
         if "lookup" in sys.argv[1:]:
-            print("Basic prompt:", basic_prompt, flush=True)
+            print(basic_prompt)
             index = load_faiss()
-            texts = query_rag(index, basic_prompt)
+            texts = query_faiss(index, basic_prompt)
             print(texts, flush=True)
-        if "rag" in sys.argv[1:]:
-            print("Basic prompt:", basic_prompt, flush=True)
+        if "rag_generate" in sys.argv[1:]:
             index = load_faiss()
-            result = query_rag(index, basic_prompt, k=5)
-            print(
-                "RAG distance:",
-                [result[index][0] for index in range(len(result))],
-                flush=True,
-            )
+            texts = query_faiss(index, basic_prompt, k=5)
+            print([texts[index][0] for index in range(len(texts))])
             rag_prompt = basic_prompt + "\nAdditional information from Wikipedia:\n"
             for text in texts:
                 rag_prompt += text + "\n"
-            print("RAG prompt:", rag_prompt, flush=True)
-            status, thinking, result = generate(rag_prompt)
-            print("Thinking about RAG prompt:", thinking, flush=True)
-            print("Answer to RAG prompt:", result, flush=True)
+            run_generate(rag_prompt)
+        if "rag_generate_stream" in sys.argv[1:]:
+            index = load_faiss()
+            texts = query_faiss(index, basic_prompt, k=5)
+            print([texts[index][0] for index in range(len(texts))])
+            rag_prompt = basic_prompt + "\nAdditional information from Wikipedia:\n"
+            for text in texts:
+                rag_prompt += text + "\n"
+            run_generate_stream(rag_prompt)
