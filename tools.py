@@ -1,12 +1,4 @@
-import bz2
-from itertools import batched
-import json
-import sqlite3
-from urllib.error import HTTPError
-import urllib.request
-from html.parser import HTMLParser
 import sys
-import numpy as np
 from dbutils import (
     search_wikipedia_term,
     ingest_wikipedia_page,
@@ -14,183 +6,138 @@ from dbutils import (
     query_faiss,
     query_fts,
 )
+from llmutils import chat, chat_stream
 
-
-def chat(prompt, with_tools=False):
-    try:
-        payload = {
-            "model": "qwen3",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "Double check an answer with embeddings, which are loaded lazily."
-                    # "At least query the local Wikipedia FTS chunk index or embeddings."
-                    "At least query the local Wikipedia chunk embeddings."
-                    "Additionally search the local Wikipedia FTS page index to ingest missing pages if appropriate."
-                    "Indicate if RAG results are still not available.",
+SYSTEM_PROMPT = (
+    "Double check an answer with embeddings, which are loaded lazily. "
+    # "At least query the local Wikipedia FTS chunk index or embeddings. "
+    "At least query the local Wikipedia chunk embeddings. "
+    "Additionally search the local Wikipedia FTS page index to ingest missing pages if appropriate. "
+    "Indicate if RAG results are still not available. "
+)
+INDEX = load_faiss()
+TOOLS = [
+    {
+        "description": {
+            "type": "function",
+            "function": {
+                "name": "query_faiss",
+                "description": "Queries the RAG knowledge base (e.g., ingested Wikipedia markdown sections) using semantic retrieval to return relevant context chunks for answering a question.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": "Natural language question",
+                        },
+                    },
+                    "required": ["prompt"],
                 },
-                {"role": "user", "content": prompt},
-            ],
+            },
+        },
+        "handler": lambda tool_call: query_faiss(
+            INDEX, tool_call["function"]["arguments"]["prompt"]
+        ),
+    },
+    {
+        "description": {
+            "type": "function",
+            "function": {
+                "name": "search_wikipedia_term",
+                "description": "Performs a SQLite FTS5 full-text search over locally indexed Wikipedia page metadata (project names and page titles)."
+                "Returns metadata for the pages including the HTTP status of the page ingestion."
+                "Does not call Wikipedia APIs.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "term": {
+                            "type": "string",
+                            "description": "Search term used in SQLite FTS MATCH query containing logical operators like AND/OR",
+                        }
+                    },
+                },
+                "required": ["term"],
+            },
+        },
+        "handler": lambda tool_call: search_wikipedia_term(
+            tool_call["function"]["arguments"]["term"]
+        ),
+    },
+    {
+        "description": {
+            "type": "function",
+            "function": {
+                "name": "ingest_wikipedia_page",
+                "description": "Fetches a Wikipedia page via HTTP, converts it to markdown, splits it into semantic sections, embeds them, and stores them in FAISS and SQLite. Does NOT return page HTML or markdown content.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "project_name": {
+                            "type": "string",
+                            "description": "Wikipedia project name",
+                        },
+                        "page_name": {
+                            "type": "string",
+                            "description": "Wikipedia page title",
+                        },
+                    },
+                },
+                "required": ["project_name", "page_name"],
+            },
+        },
+        "handler": lambda tool_call: ingest_wikipedia_page(
+            INDEX,
+            tool_call["function"]["arguments"]["project_name"],
+            tool_call["function"]["arguments"]["page_name"],
+        ),
+    },
+]
+"""
+{
+    "description": {
+        "type": "function",
+        "function": {
+            "name": "query_fts",
+            "description": "Queries the RAG knowledge base (e.g., ingested Wikipedia markdown sections) using lexical retrieval to return relevant context chunks for answering a question.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "term": {
+                        "type": "string",
+                        "description": "Search term used in SQLite FTS MATCH query containing logical operators like AND/OR",
+                    },
+                },
+                "required": ["term"],
+            }
         }
-        if with_tools:
-            payload["tools"] = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "query_faiss",
-                        "description": "Queries the RAG knowledge base (e.g., ingested Wikipedia markdown sections) using semantic retrieval to return relevant context chunks for answering a question.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "prompt": {
-                                    "type": "string",
-                                    "description": "Natural language question",
-                                },
-                            },
-                            "required": ["prompt"],
-                        },
-                    },
-                },
-                # {
-                #     "type": "function",
-                #     "function": {
-                #         "name": "query_fts",
-                #         "description": "Queries the RAG knowledge base (e.g., ingested Wikipedia markdown sections) using lexical retrieval to return relevant context chunks for answering a question.",
-                #         "parameters": {
-                #             "type": "object",
-                #             "properties": {
-                #                 "term": {
-                #                     "type": "string",
-                #                     "description": "Search term used in SQLite FTS MATCH query containing logical operators like AND/OR",
-                #                 },
-                #             },
-                #             "required": ["term"],
-                #         },
-                #     },
-                # },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "search_wikipedia_term",
-                        "description": "Performs a SQLite FTS5 full-text search over locally indexed Wikipedia page metadata (project names and page titles)."
-                        "Returns metadata for the pages including the HTTP status of the page ingestion."
-                        "Does not call Wikipedia APIs.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "term": {
-                                    "type": "string",
-                                    "description": "Search term used in SQLite FTS MATCH query containing logical operators like AND/OR",
-                                }
-                            },
-                        },
-                        "required": ["term"],
-                    },
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "ingest_wikipedia_page",
-                        "description": "Fetches a Wikipedia page via HTTP, converts it to markdown, splits it into semantic sections, embeds them, and stores them in FAISS and SQLite. Does NOT return page HTML or markdown content.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "project_name": {
-                                    "type": "string",
-                                    "description": "Wikipedia project name",
-                                },
-                                "page_name": {
-                                    "type": "string",
-                                    "description": "Wikipedia page title",
-                                },
-                            },
-                        },
-                        "required": ["project_name", "page_name"],
-                    },
-                },
-            ]
-        index = load_faiss()
-        status = None
-        thinking = ""
-        result = ""
-        done = False
-        while not done:
-            with urllib.request.urlopen(
-                "http://localhost:11434/api/chat",
-                data=json.dumps(payload).encode("utf-8"),
-            ) as response:
-                done = True
-                status = response.status
-                for line in response.read().decode("utf-8").splitlines():
-                    answer = json.loads(line)["message"]
-                    if "thinking" in answer:
-                        thinking += answer["thinking"]
-                    elif "tool_calls" in answer:
-                        payload["messages"].append(answer)
-                        for tool_call in answer["tool_calls"]:
-                            if tool_call["function"]["name"] == "search_wikipedia_term":
-                                pages = search_wikipedia_term(
-                                    tool_call["function"]["arguments"]["term"]
-                                )
-                                payload["messages"].append(
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tool_call["id"],
-                                        "content": json.dumps(pages),
-                                    }
-                                )
-                                done = False
-                            elif (
-                                tool_call["function"]["name"] == "ingest_wikipedia_page"
-                            ):
-                                ingest_wikipedia_page(
-                                    index,
-                                    tool_call["function"]["arguments"]["project_name"],
-                                    tool_call["function"]["arguments"]["page_name"],
-                                )
-                                payload["messages"].append(
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tool_call["id"],
-                                        "content": json.dumps(status),
-                                    }
-                                )
-                                done = False
-                            elif tool_call["function"]["name"] == "query_faiss":
-                                texts = query_faiss(
-                                    index, tool_call["function"]["arguments"]["prompt"]
-                                )
-                                payload["messages"].append(
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tool_call["id"],
-                                        "content": json.dumps(texts),
-                                    }
-                                )
-                                done = False
-                            elif tool_call["function"]["name"] == "query_fts":
-                                texts = query_fts(
-                                    tool_call["function"]["arguments"]["term"]
-                                )
-                                payload["messages"].append(
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tool_call["id"],
-                                        "content": json.dumps(texts),
-                                    }
-                                )
-                                done = False
-                    else:
-                        result += answer["content"]
-    except HTTPError as e:
-        status = e.status
-        thinking = None
-        result = None
-    return status, thinking, result
+    },
+    "handler": lambda tool_call: query_fts(
+        tool_call["function"]["arguments"]["term"]
+    ),
+},
+"""
+
+
+def run_chat(user_prompt, tools=None):
+    system_prompt = SYSTEM_PROMPT if tools else None
+    print(user_prompt)
+    status, thinking, content = chat(system_prompt, user_prompt, tools)
+    print(status, thinking, content)
+
+
+def run_chat_stream(user_prompt, tools=None):
+    system_prompt = SYSTEM_PROMPT if tools else None
+    print(user_prompt)
+    for status, thinking, content in chat_stream(system_prompt, user_prompt, tools):
+        assert status == 200
+        if thinking:
+            print(thinking, end="", flush=True)
+        elif content:
+            print(content, end="", flush=True)
 
 
 if __name__ == "__main__":
-    for basic_prompt in [
+    for user_prompt in [
         # "Which tools are available?"
         # "Which Wikipedia pages could reference Google Chrome?"
         # "Tell me about Google Chrome."
@@ -205,13 +152,11 @@ if __name__ == "__main__":
         "What are the competing theories about the origin of life on Earth?",
         # "What historical facts about King Arthur are supported by evidence, if any?",
     ]:
-        if "simple" in sys.argv[1:]:
-            print("Basic prompt:", basic_prompt, flush=True)
-            status, thinking, result = chat(basic_prompt)
-            print("Thinking about basic prompt:", thinking, flush=True)
-            print("Answer to basic prompt:", result, flush=True)
-        if "rag" in sys.argv[1:]:
-            print("Basic prompt:", basic_prompt, flush=True)
-            status, thinking, result = chat(basic_prompt, with_tools=True)
-            print("Thinking about basic prompt with tools:", thinking, flush=True)
-            print("Answer to basic prompt with tools:", result, flush=True)
+        if "chat" in sys.argv[1:]:
+            run_chat(user_prompt)
+        if "chat_stream" in sys.argv[1:]:
+            run_chat_stream(user_prompt)
+        if "rag_chat" in sys.argv[1:]:
+            run_chat(user_prompt, TOOLS)
+        if "rag_chat_stream" in sys.argv[1:]:
+            run_chat_stream(user_prompt, TOOLS)
