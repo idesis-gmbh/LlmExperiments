@@ -84,27 +84,32 @@ def generate(prompt):
     return status, thinking, content
 
 
-def chat_stream(system_prompt, user_prompt, tools=None):
+def assemble_messages(system_prompt, user_prompt):
+    messages = []
+    if system_prompt:
+        messages.append(
+            {
+                "role": "system",
+                "content": system_prompt,
+            }
+        )
+    if user_prompt:
+        messages.append(
+            {
+                "role": "user",
+                "content": user_prompt,
+            }
+        )
+    return messages
+
+
+def chat_stream(messages, tools=None):
     try:
         payload = {
             "model": "qwen3",
-            "messages": [],
+            "messages": messages,
             "stream": True,
         }
-        if system_prompt:
-            payload["messages"].append(
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                }
-            )
-        if user_prompt:
-            payload["messages"].append(
-                {
-                    "role": "user",
-                    "content": user_prompt,
-                }
-            )
         if tools:
             payload["tools"] = [tool["description"] for tool in tools]
         pending = False
@@ -150,27 +155,13 @@ def chat_stream(system_prompt, user_prompt, tools=None):
         yield e.status, None, None
 
 
-def chat(system_prompt, user_prompt, tools=None):
+def chat(messages, tools=None):
     try:
         payload = {
             "model": "qwen3",
-            "messages": [],
+            "messages": messages,
             "stream": False,
         }
-        if system_prompt:
-            payload["messages"].append(
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                }
-            )
-        if user_prompt:
-            payload["messages"].append(
-                {
-                    "role": "user",
-                    "content": user_prompt,
-                }
-            )
         if tools:
             payload["tools"] = [tool["description"] for tool in tools]
         pending = False

@@ -25,6 +25,7 @@ def run_generate_stream(prompt):
         elif content:
             print(content, end="", flush=True)
 
+
 if __name__ == "__main__":
     if "load_wikipedia_pageviews" in sys.argv[1:]:
         load_wikipedia_pageviews("data/pageviews-202511-user.bz2")

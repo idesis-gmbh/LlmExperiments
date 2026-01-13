@@ -6,7 +6,7 @@ from dbutils import (
     query_faiss,
     query_fts,
 )
-from llmutils import chat, chat_stream
+from llmutils import assemble_messages, chat, chat_stream
 
 SYSTEM_PROMPT = (
     "Double check an answer with embeddings, which are loaded lazily. "
@@ -121,14 +121,16 @@ TOOLS = [
 def run_chat(user_prompt, tools=None):
     system_prompt = SYSTEM_PROMPT if tools else None
     print(user_prompt)
-    status, thinking, content = chat(system_prompt, user_prompt, tools)
+    messages = assemble_messages(system_prompt, user_prompt)
+    status, thinking, content = chat(messages, tools)
     print(status, thinking, content)
 
 
 def run_chat_stream(user_prompt, tools=None):
     system_prompt = SYSTEM_PROMPT if tools else None
     print(user_prompt)
-    for status, thinking, content in chat_stream(system_prompt, user_prompt, tools):
+    messages = assemble_messages(system_prompt, user_prompt)
+    for status, thinking, content in chat_stream(messages, tools):
         assert status == 200
         if thinking:
             print(thinking, end="", flush=True)
