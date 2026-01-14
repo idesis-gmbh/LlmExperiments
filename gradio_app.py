@@ -1,5 +1,5 @@
-from llmutils import chat
 import gradio as gr
+from llmutils import chat
 
 
 def run_chat(message, history):
@@ -14,7 +14,7 @@ def run_chat(message, history):
     messages.append({"role": "user", "content": message})
     status, thinking, content = chat(messages)
     assert status == 200
-    return f"{thinking}{content}"
+    return content
 
 
 gr.ChatInterface(
