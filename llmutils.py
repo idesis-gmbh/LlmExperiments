@@ -168,7 +168,9 @@ def chat_stream(messages, tools=None):
                             payload["messages"].append(message)
                             event_type = "tooling"
                         else:
-                            payload["messages"][-1]["tool_calls"].append(message["tool_calls"])
+                            payload["messages"][-1]["tool_calls"].append(
+                                message["tool_calls"]
+                            )
                         tooling = []
                         for tool_call in message["tool_calls"]:
                             for tool in tools:
@@ -178,10 +180,7 @@ def chat_stream(messages, tools=None):
                                 ):
                                     tool_return = tool["handler"](tool_call)
                                     tooling.append(
-                                        {
-                                            "call": tool_call,
-                                            "return": tool_return
-                                        }
+                                        {"call": tool_call, "return": tool_return}
                                     )
                                     payload["messages"].append(
                                         {

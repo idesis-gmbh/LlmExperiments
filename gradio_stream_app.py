@@ -120,37 +120,19 @@ TOOLS = [
 
 
 def run_chat_stream(message, history):
-    print("*** history", history)
     messages = [
         {
             "role": entry["role"],
             "content": "".join(chunk["text"] for chunk in entry["content"]),
         }
         for entry in history
-    ]    
+    ]
     assert len(messages) == 0 or messages[-1]["role"] != "user"
     messages.append({"role": "user", "content": message})
-    # messages.append({"role": "assistant", "content": ""})
-    print("*** messages 1", messages)
     response = {"thinking": "", "tooling": "", "content": ""}
-
-# *** history []
-# *** event {'type': 'thinking', 'status': 200, 'data': 'Okay'}
-# *** response {'thinking': 'Okay', 'tooling': '', 'content': ''}
-# *** messages[-1] {'role': 'assistant', 'content': '', 'thinking': 'Okay'}
-
     for event in chat_stream(messages, TOOLS):
-        print("*** event", event)
         assert event["status"] == 200
         response[event["type"]] += event["data"]
-        print("*** response", response)
-        # print("*** messages 2", messages)
-        # if event["type"] == "content":
-        #     messages[-1]["content"] = response["content"]
-        # print("*** messages 3", messages)
-        print("*** yield thinking", response["thinking"])
-        print("*** yield tooling", response["tooling"])
-        print("*** yield content", messages)
         yield response["thinking"], response["tooling"], messages
 
 
