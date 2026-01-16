@@ -12,18 +12,20 @@ from llmutils import generate, generate_stream
 
 def run_generate(prompt):
     print(prompt)
-    status, thinking, content = generate(prompt)
-    print(status, thinking, content)
+    for event in generate(prompt):
+        assert event["status"] == 200
+        print(event["type"], event["data"])
 
 
 def run_generate_stream(prompt):
     print(prompt)
-    for status, thinking, content in generate_stream(prompt):
-        assert status == 200
-        if thinking:
-            print(thinking, end="", flush=True)
-        elif content:
-            print(content, end="", flush=True)
+    event_type = None
+    for event in generate_stream(prompt):
+        assert event["status"] == 200
+        if event["type"] != event_type:
+            print(f"{event['type']} ", end="")
+            event_type = event["type"]
+        print(event["data"], end="")
 
 
 if __name__ == "__main__":
@@ -50,7 +52,7 @@ if __name__ == "__main__":
             print(basic_prompt)
             index = load_faiss()
             texts = query_faiss(index, basic_prompt)
-            print(texts, flush=True)
+            print(texts)
         if "rag_generate" in sys.argv[1:]:
             index = load_faiss()
             texts = query_faiss(index, basic_prompt, k=5)

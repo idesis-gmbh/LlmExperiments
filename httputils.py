@@ -185,7 +185,7 @@ def get_wikipedia_page(project_name, page_name):
         ),
         headers={"User-Agent": "Mozilla/5.0"},
     )
-    print("get_wikipedia_page", req.full_url, flush=True)
+    print("get_wikipedia_page", req.full_url)
     try:
         with urllib.request.urlopen(req) as response:
             status = response.status

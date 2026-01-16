@@ -84,16 +84,14 @@ def load_faiss():
 
 
 def query_faiss(index, prompt, k=5):
-    print("query_faiss", prompt, flush=True)
     texts = []
     with sqlite3.connect("data/rag.db") as connection:
         # status, embedding = embed_one("search_query: ", prompt)
-        status, embedding = embed_one("", prompt)
-        if status == 200:
-            query = np.array(embedding, dtype="float32").reshape(1, -1)
+        event = embed_one("", prompt)
+        if event["status"] == 200:
+            query = np.array(event["data"], dtype="float32").reshape(1, -1)
             faiss.normalize_L2(query)
             D, I = index.search(query, k=k)
-            print(D, flush=True)
             cursor = connection.cursor()
             for distance, id in zip(D[0], I[0]):
                 for (text,) in cursor.execute(
@@ -103,12 +101,10 @@ def query_faiss(index, prompt, k=5):
                     if (not texts and distance >= 0.5) or distance >= 0.6:
                         if text not in texts:
                             texts.append(text)
-    print(texts, flush=True)
     return texts
 
 
 def query_fts(term, k=5):
-    print("query_fts", term, flush=True)
     texts = []
     with sqlite3.connect("data/rag.db") as connection:
         cursor = connection.cursor()
@@ -123,12 +119,10 @@ def query_fts(term, k=5):
         ):
             if text not in texts:
                 texts.append(text)
-    print(texts, flush=True)
     return texts
 
 
 def search_wikipedia_term(term, min_views=1_000, k=5):
-    print("search_wikipedia_term", term, flush=True)
     pages = []
     with sqlite3.connect("data/rag.db") as connection:
         cursor = connection.cursor()
@@ -159,7 +153,6 @@ def search_wikipedia_term(term, min_views=1_000, k=5):
                 }
             )
         connection.commit()
-    print(pages, flush=True)
     return pages
 
 
@@ -216,10 +209,10 @@ def update_wikipedia_sections(connection, page_id, html):
         for section in parser.sections:
             text = "\n".join(section[0]) + "\n" + "\n".join(section[1])
             # print(text)
-            # status, document = embed_one("search_document: ", text)
-            status, document = embed_one("", text)
-            if status == 200:
-                embedding = np.array(document).astype("float32").tobytes()
+            # event = embed_one("search_document: ", text)
+            event = embed_one("", text)
+            if event["status"] == 200:
+                embedding = np.array(event["data"]).astype("float32").tobytes()
                 assert all(
                     np.isclose(document, np.frombuffer(embedding, dtype="float32"))
                 )
@@ -228,7 +221,7 @@ def update_wikipedia_sections(connection, page_id, html):
                     [
                         page_id,
                         text,
-                        status,
+                        event["status"],
                         sqlite3.Binary(embedding),
                     ],
                 )
@@ -238,18 +231,18 @@ def update_wikipedia_sections(connection, page_id, html):
         text = "\n".join(section[0]) + "\n" + "\n".join(section[1])
         # print(text)
         texts.append(text)
-    # status, documents = embed_multiple("search_document: ", texs)
-    status, documents = embed_multiple("", texts)
-    if status == 200:
+    # event = embed_multiple("search_document: ", texs)
+    event = embed_multiple("", texts)
+    if event["status"] == 200:
         embeddings = []
-        for document in documents:
+        for document in event["data"]:
             embedding = np.array(document).astype("float32").tobytes()
             assert all(np.isclose(document, np.frombuffer(embedding, dtype="float32")))
             embeddings.append(embedding)
         cursor2.executemany(
             "INSERT OR REPLACE INTO chunks (page_id, text, status, embedding) VALUES (?, ?, ?, ?)",
             [
-                (page_id, text, status, sqlite3.Binary(embedding))
+                (page_id, text, event["status"], sqlite3.Binary(embedding))
                 for text, embedding in zip(texts, embeddings)
             ],
         )
@@ -269,7 +262,6 @@ def extract_wikipedia_sections():
 
 
 def ingest_wikipedia_page(index, project_name, page_name):
-    print("ingest_wikipedia_page", project_name, page_name, flush=True)
     status = 404
     with sqlite3.connect("data/rag.db") as connection:
         cursor = connection.cursor()
@@ -294,4 +286,4 @@ def ingest_wikipedia_page(index, project_name, page_name):
                 update_faiss(connection, index, page_id)
             break
         connection.commit()
-        return status, index
+        return status

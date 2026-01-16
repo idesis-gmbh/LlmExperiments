@@ -122,20 +122,22 @@ def run_chat(user_prompt, tools=None):
     system_prompt = SYSTEM_PROMPT if tools else None
     print(user_prompt)
     messages = assemble_messages(system_prompt, user_prompt)
-    status, thinking, content = chat(messages, tools)
-    print(status, thinking, content)
+    for event in chat(messages, tools):
+        assert event["status"] == 200
+        print(event["type"], event["data"])
 
 
 def run_chat_stream(user_prompt, tools=None):
     system_prompt = SYSTEM_PROMPT if tools else None
     print(user_prompt)
     messages = assemble_messages(system_prompt, user_prompt)
-    for status, thinking, content in chat_stream(messages, tools):
-        assert status == 200
-        if thinking:
-            print(thinking, end="", flush=True)
-        elif content:
-            print(content, end="", flush=True)
+    event_type = None
+    for event in chat_stream(messages, tools):
+        assert event["status"] == 200
+        if event["type"] != event_type:
+            print(f"{event['type']} ", end="")
+            event_type = event["type"]
+        print(event["data"], end="")
 
 
 if __name__ == "__main__":

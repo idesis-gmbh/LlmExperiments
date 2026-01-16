@@ -12,9 +12,11 @@ def run_chat(message, history):
     ]
     assert len(messages) == 0 or messages[-1]["role"] != "user"
     messages.append({"role": "user", "content": message})
-    status, thinking, content = chat(messages)
-    assert status == 200
-    return content
+    for event in chat(messages):
+        assert event["status"] == 200
+        if event["type"] == "content":
+            return event["data"]
+    return ""
 
 
 gr.ChatInterface(
