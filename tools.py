@@ -7,115 +7,23 @@ from dbutils import (
     query_fts,
 )
 from llmutils import assemble_messages, chat, chat_stream
+from env import SYSTEM_PROMPT, TOOLS
 
-SYSTEM_PROMPT = (
-    "Double check an answer with embeddings, which are loaded lazily. "
-    # "At least query the local Wikipedia FTS chunk index or embeddings. "
-    "At least query the local Wikipedia chunk embeddings. "
-    "Additionally search the local Wikipedia FTS page index to ingest missing pages if appropriate. "
-    "Indicate if RAG results are still not available. "
-)
 INDEX = load_faiss()
-TOOLS = [
-    {
-        "description": {
-            "type": "function",
-            "function": {
-                "name": "query_faiss",
-                "description": "Queries the RAG knowledge base (e.g., ingested Wikipedia markdown sections) using semantic retrieval to return relevant context chunks for answering a question.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "prompt": {
-                            "type": "string",
-                            "description": "Natural language question",
-                        },
-                    },
-                    "required": ["prompt"],
-                },
-            },
-        },
-        "handler": lambda tool_call: query_faiss(
-            INDEX, tool_call["function"]["arguments"]["prompt"]
-        ),
-    },
-    {
-        "description": {
-            "type": "function",
-            "function": {
-                "name": "search_wikipedia_term",
-                "description": "Performs a SQLite FTS5 full-text search over locally indexed Wikipedia page metadata (project names and page titles)."
-                "Returns metadata for the pages including the HTTP status of the page ingestion."
-                "Does not call Wikipedia APIs.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "term": {
-                            "type": "string",
-                            "description": "Search term used in SQLite FTS MATCH query containing logical operators like AND/OR",
-                        }
-                    },
-                },
-                "required": ["term"],
-            },
-        },
-        "handler": lambda tool_call: search_wikipedia_term(
-            tool_call["function"]["arguments"]["term"]
-        ),
-    },
-    {
-        "description": {
-            "type": "function",
-            "function": {
-                "name": "ingest_wikipedia_page",
-                "description": "Fetches a Wikipedia page via HTTP, converts it to markdown, splits it into semantic sections, embeds them, and stores them in FAISS and SQLite. Does NOT return page HTML or markdown content.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "project_name": {
-                            "type": "string",
-                            "description": "Wikipedia project name",
-                        },
-                        "page_name": {
-                            "type": "string",
-                            "description": "Wikipedia page title",
-                        },
-                    },
-                },
-                "required": ["project_name", "page_name"],
-            },
-        },
-        "handler": lambda tool_call: ingest_wikipedia_page(
-            INDEX,
-            tool_call["function"]["arguments"]["project_name"],
-            tool_call["function"]["arguments"]["page_name"],
-        ),
-    },
-]
-"""
-{
-    "description": {
-        "type": "function",
-        "function": {
-            "name": "query_fts",
-            "description": "Queries the RAG knowledge base (e.g., ingested Wikipedia markdown sections) using lexical retrieval to return relevant context chunks for answering a question.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "term": {
-                        "type": "string",
-                        "description": "Search term used in SQLite FTS MATCH query containing logical operators like AND/OR",
-                    },
-                },
-                "required": ["term"],
-            }
-        }
-    },
-    "handler": lambda tool_call: query_fts(
-        tool_call["function"]["arguments"]["term"]
-    ),
-},
-"""
+TOOLS[0]["handler"] = lambda tool_call: query_faiss(
+    INDEX, tool_call["function"]["arguments"]["prompt"]
+)
+TOOLS[1]["handler"] = lambda tool_call: search_wikipedia_term(
+    tool_call["function"]["arguments"]["term"]
+)
+TOOLS[2]["handler"] = lambda tool_call: ingest_wikipedia_page(
+    INDEX,
+    tool_call["function"]["arguments"]["project_name"],
+    tool_call["function"]["arguments"]["page_name"],
+)
+# TOOLS[3]["handler"] = (
+#     lambda tool_call: query_fts(tool_call["function"]["arguments"]["term"]),
+# )
 
 
 def run_chat(user_prompt, tools=None):

@@ -5,6 +5,7 @@ import zlib
 import numpy as np
 from httputils import WikipediaHTMLParser, get_wikipedia_page
 from llmutils import embed_one, embed_multiple
+from ftsutils import sanitize_fts_query
 import faiss
 
 
@@ -98,7 +99,7 @@ def query_faiss(index, prompt, k=5):
                     "SELECT text FROM chunks WHERE id = ?",
                     [int(id)],
                 ):
-                    if (not texts and distance >= 0.5) or distance >= 0.6:
+                    if (not texts and distance >= 0.6) or distance >= 0.65:
                         if text not in texts:
                             texts.append(text)
     return texts
@@ -115,7 +116,7 @@ def query_fts(term, k=5):
             "WHERE chunks_fts.text MATCH ? "
             "ORDER BY chunks_fts.rank "
             "LIMIT ?",
-            [term.replace("?", ""), k],
+            [sanitize_fts_query(term), k],
         ):
             if text not in texts:
                 texts.append(text)
@@ -141,7 +142,7 @@ def search_wikipedia_term(term, min_views=1_000, k=5):
             "AND pages.views >= ? "
             "ORDER BY pages_fts.rank, pages.views DESC "
             "LIMIT ?",
-            [term.replace("?", ""), min_views, k],
+            [sanitize_fts_query(term), min_views, k],
         ):
             pages.append(
                 {
