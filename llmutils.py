@@ -46,7 +46,9 @@ def generate_stream(prompt):
         with urllib.request.urlopen(
             "http://localhost:11434/api/generate",
             data=json.dumps(
+                # {"model": "magistral", "prompt": prompt, "stream": True}
                 {"model": "qwen3", "prompt": prompt, "stream": True}
+                # {"model": "gpt-oss", "prompt": prompt, "stream": True}
             ).encode("utf-8"),
         ) as response:
             status = response.status
@@ -75,7 +77,9 @@ def generate(prompt):
         with urllib.request.urlopen(
             "http://localhost:11434/api/generate",
             data=json.dumps(
+                # {"model": "magistral", "prompt": prompt, "stream": False}
                 {"model": "qwen3", "prompt": prompt, "stream": False}
+                # {"model": "gpt-oss", "prompt": prompt, "stream": False}
             ).encode("utf-8"),
         ) as response:
             status = response.status
@@ -117,7 +121,9 @@ def assemble_messages(system_prompt, user_prompt):
 def chat_stream(messages, tools=None):
     try:
         payload = {
+            # "model": "magistral",
             "model": "qwen3",
+            # "model": "gpt-oss",
             "messages": messages,
             "stream": True,
         }
@@ -138,13 +144,15 @@ def chat_stream(messages, tools=None):
                     answer = json.loads(line)
                     message = answer["message"]
                     done = answer["done"]
+                    if done:
+                        print(answer)
                     if "thinking" in message:
                         assert not done and not message["content"]
-                        if event_type != "thinking":
-                            payload["messages"].append(message)
-                            event_type = "thinking"
-                        else:
-                            payload["messages"][-1]["thinking"] += message["thinking"]
+                        # if event_type != "thinking":
+                        #     payload["messages"].append(message)
+                        #     event_type = "thinking"
+                        # else:
+                        #     payload["messages"][-1]["thinking"] += message["thinking"]
                         yield {
                             "type": "thinking",
                             "status": status,
@@ -163,7 +171,7 @@ def chat_stream(messages, tools=None):
                             "data": message["content"],
                         }
                     if "tool_calls" in message:
-                        assert not done
+                        # assert not done
                         if event_type != "tooling":
                             payload["messages"].append(message)
                             event_type = "tooling"
@@ -203,7 +211,9 @@ def chat_stream(messages, tools=None):
 def chat(messages, tools=None):
     try:
         payload = {
+            # "model": "magistral",
             "model": "qwen3",
+            # "model": "gpt-oss",
             "messages": messages,
             "stream": False,
         }

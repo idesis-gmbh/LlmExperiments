@@ -23,8 +23,8 @@ def run_chat_stream(user_prompt):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) >= 2:
+    if len(sys.argv) >= 3:
         if sys.argv[1] == "chat":
-            run_chat("Why sky is blue?")
+            run_chat(sys.argv[2])
         elif sys.argv[1] == "chat_stream":
-            run_chat_stream("Why sky is blue?")
+            run_chat_stream(sys.argv[2])
