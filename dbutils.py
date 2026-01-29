@@ -64,10 +64,12 @@ def store_page(connection, project_id, page_name, markdown):
 
 def load_page(connection, project_id, page_name):
     cursor = connection.cursor()
-    markdown = list(cursor.execute(
-        "SELECT markdown FROM pages WHERE project_id = ? AND name = ?",
-        [project_id, page_name],
-    ))
+    markdown = list(
+        cursor.execute(
+            "SELECT markdown FROM pages WHERE project_id = ? AND name = ?",
+            [project_id, page_name],
+        )
+    )
     connection.commit()
     assert len(markdown) <= 1
     return markdown[0][0] if markdown else None

@@ -39,59 +39,70 @@ def run_chat_stream(user_prompt, debug):
 
 
 def classify(item, debug=False):
-    product_categories = [
-        "Coatings & Finishes",
-        "Surface Preparation",
-        "Application Tools",
-        "Thinners & Additives",
-        "Protective Equipment",
-        "Ancillary Products",
-        "Wall Coverings & Decorative Materials",
-        "Insulation & Weatherproofing",
-        "Adhesives & Bonding Materials",
-        "Structural Profiles & Components",
-    ]
     result_template = {
-        "category": "<category name>",
-        "confidence": "<a value between 0.0 to 1.0>",
-        "reasoning": "<brief explanation>",
-        "proposed_new_category": "<name of new category if needed, otherwise null>",
+        "completeness_score": "<float between 0.0 and 1.0>",
+        "quality_rating": "<excellent|good|adequate|poor>",
+        "missing_critical_attributes": "<list of strings>",
+        "missing_optional_attributes": "<list of strings>",
+        "inconsistencies": "<list of strings or empty array>",
+        "data_quality_issues": "<list of strings or empty array>",
+        "reasoning": "<brief explanation of the assessment>",
+        "recommendations": "<list of prioritized improvement suggestions>",
     }
     prompt = f"""
-Given the following product categories 
-```{json.dumps(product_categories)}```
-classify a product description responding **only** with a JSON object in this exact format: 
+Rate a product description responding **only** with a JSON object in this exact format: 
 ```{json.dumps(result_template)}```
 
-Please note:
-- If the product genuinely doesn't fit **any** existing category, set category to "PROPOSED_NEW_CATEGORY"
-- When proposing a new category, provide a clear, descriptive name that could apply to multiple similar products
-- Keep reasoning concise to a single sentence
+Check for the presence and quality of these attributes:
 
-Classify the following product description: 
+COMMERCIAL DATA:
+- Product code/SKU/EAN
+- Packaging unit specification
+- Minimum order quantity
+- Lead time/availability information
+
+LOGISTICS DATA:
+- Package dimensions (L x W x H)
+- Package weight
+- Pallet configuration
+- Storage requirements
+- Hazmat classification (if applicable)
+- Shelf life
+
+CLASSIFICATION:
+- Product category/hierarchy
+- HS/customs code
+- Brand name
+
+TECHNICAL DATA:
+- Core product specifications
+- Regulatory compliance/certifications
+- Reference to safety/technical datasheets
+
+Rate the following product description: 
 ```{json.dumps(item)}```
 """
     try:
         response = run_chat_stream(prompt, debug)
         result = json.loads(response)
-        if result.get("category") not in product_categories + [
-            "PROPOSED_NEW_CATEGORY",
-            "UNKNOWN",
+        if result.get("quality_rating") not in [
+            "excellent",
+            "good",
+            "adequate",
+            "poor",
         ]:
             return {
-                "category": "UNKNOWN",
-                "confidence": 0.0,
+                "completeness_score": 0.0,
+                "quality_rating": "UNKNOWN",
                 "reasoning": "LLM returned no or invalid category",
-                "proposed_new_category": None,
                 "raw_response": response,
             }
         return result
     except json.JSONDecodeError:
         return {
-            "category": "UNKNOWN",
-            "confidence": 0.0,
+            "completeness_score": 0.0,
+            "quality_rating": "UNKNOWN",
             "reasoning": "Failed to parse LLM response",
-            "proposed_new_category": None,
             "raw_response": response,
         }
 
@@ -102,13 +113,10 @@ def prepare(item):
     markdown = load_page(connection, projects["proart"], item["ean"])
     if markdown:
         item = json.loads(markdown)
-        if "klassifikation" in item:
-            if item["klassifikation"]["category"] not in [
-                "PROPOSED_NEW_CATEGORY",
-                "UNKNOWN",
-            ]:
+        if "bewertung_b2b" in item:
+            if item["bewertung_b2b"]["quality_rating"] not in ["UNKNOWN"]:
                 return None
-            item.pop("klassifikation")
+            item.pop("bewertung_b2b")
     return item
 
 
@@ -116,8 +124,8 @@ def process_serial(items):
     for item in items:
         item = prepare(item)
         if item:
-            item["klassifikation"] = classify(item)
-            print(item["klassifikation"])
+            item["bewertung_b2b"] = classify(item)
+            print(item["bewertung_b2b"])
             store_page(connection, projects["proart"], item["ean"], json.dumps(item))
 
 
@@ -131,16 +139,15 @@ def process_parallel(items, max_workers=4):
         for future in concurrent.futures.as_completed(futures):
             item = futures[future]
             try:
-                item["klassifikation"] = classify(item)
+                item["bewertung_b2b"] = classify(item)
             except Exception as e:
-                item["klassifikation"] = {
-                    "category": "UNKNOWN",
-                    "confidence": 0.0,
-                    "reasoning": "An error occurred during classification",
-                    "proposed_new_category": None,
+                item["bewertung_b2b"] = {
+                    "completeness_score": 0.0,
+                    "quality_rating": "UNKNOWN",
+                    "reasoning": "An error occurred during rating",
                     "raw_response": str(e),
                 }
-            print(item["klassifikation"])
+            print(item["bewertung_b2b"])
             store_page(connection, projects["proart"], item["ean"], json.dumps(item))
 
 

@@ -144,8 +144,8 @@ def chat_stream(messages, tools=None):
                     answer = json.loads(line)
                     message = answer["message"]
                     done = answer["done"]
-                    if done:
-                        print(answer)
+                    # if done:
+                    #    print(answer)
                     if "thinking" in message:
                         assert not done and not message["content"]
                         # if event_type != "thinking":
