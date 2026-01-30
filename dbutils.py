@@ -55,10 +55,24 @@ def update_page_markdown(cursor, page_id, markdown):
 
 def store_page(connection, project_id, page_name, markdown):
     cursor = connection.cursor()
-    cursor.execute(
-        "INSERT OR IGNORE INTO pages (project_id, name, views, markdown) VALUES (?,?, ?, ?)",
-        [project_id, page_name, 0, markdown],
+    page_id = list(
+        cursor.execute(
+            "SELECT page_id FROM pages WHERE project_id = ? AND name = ?",
+            [project_id, page_name],
+        )
     )
+    assert len(page_id) <= 1
+    if not page_id:
+        cursor.execute(
+            "INSERT OR IGNORE INTO pages (project_id, name, views, markdown) VALUES (?,?, ?, ?)",
+            [project_id, page_name, 0, markdown],
+        )
+    else:
+        page_id = page_id[0][0]
+        cursor.execute(
+            "UPDATE pages SET markdown = ? WHERE id = ?",
+            [markdown, page_id],
+        )
     connection.commit()
 
 

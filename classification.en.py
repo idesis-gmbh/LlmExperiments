@@ -2,54 +2,21 @@ import concurrent.futures
 import json
 import sqlite3
 from dbutils import store_projects, load_projects, store_page, load_page
-from llmutils import embed_one, assemble_messages, chat, chat_stream
+from llmutils import embed_one, run_chat, run_chat_stream, load_json_response
 
 
-def run_chat(user_prompt, debug):
-    if debug:
-        print(user_prompt)
-    messages = assemble_messages(None, user_prompt)
-    content = ""
-    for event in chat(messages):
-        assert event["status"] == 200
-        if event["type"] == "content":
-            content += event["data"]
-        if debug:
-            print(event["type"], event["data"])
-    return content
-
-
-def run_chat_stream(user_prompt, debug):
-    if debug:
-        print(user_prompt)
-    messages = assemble_messages(None, user_prompt)
-    event_type = None
-    content = ""
-    for event in chat_stream(messages):
-        assert event["status"] == 200
-        if event["type"] != event_type:
-            if debug:
-                print(f"{event['type']} ", end="")
-            event_type = event["type"]
-        if debug:
-            print(event["data"], end="")
-        if event["type"] == "content":
-            content += event["data"]
-    return content
-
-
-def classify(item, debug=False):
+def classify(item, model, debug=False):
     product_categories = [
-        "Coatings & Finishes",
-        "Surface Preparation",
-        "Application Tools",
-        "Thinners & Additives",
-        "Protective Equipment",
-        "Ancillary Products",
-        "Wall Coverings & Decorative Materials",
+        "Paints, Varnishes & Stains",
+        "Primers & Surface Preparation",
+        "Painting Tools & Equipment",
+        "Solvents & Additives",
+        "Personal Protective Equipment",
+        "Painting Accessories",
+        "Wall Coverings & Wallpapers",
         "Insulation & Weatherproofing",
         "Adhesives & Bonding Materials",
-        "Structural Profiles & Components",
+        "Profiles, Trim & Molding",
     ]
     result_template = {
         "category": "<category name>",
@@ -72,8 +39,8 @@ Classify the following product description:
 ```{json.dumps(item)}```
 """
     try:
-        response = run_chat_stream(prompt, debug)
-        result = json.loads(response)
+        response = run_chat_stream(prompt, model, debug)
+        result = load_json_response(response)
         if result.get("category") not in product_categories + [
             "PROPOSED_NEW_CATEGORY",
             "UNKNOWN",
@@ -96,10 +63,10 @@ Classify the following product description:
         }
 
 
-def prepare(item):
+def prepare(project, item):
     if item["ist_nicht_mehr_lieferbar"]:
         return None
-    markdown = load_page(connection, projects["proart"], item["ean"])
+    markdown = load_page(connection, project, item["ean"])
     if markdown:
         item = json.loads(markdown)
         if "klassifikation" in item:
@@ -112,26 +79,28 @@ def prepare(item):
     return item
 
 
-def process_serial(items):
+def process_serial(project, items, model):
     for item in items:
-        item = prepare(item)
+        item = prepare(project, item)
         if item:
-            item["klassifikation"] = classify(item)
+            item["klassifikation"] = classify(item, model, debug=True)
+            print(item["ean"])
             print(item["klassifikation"])
-            store_page(connection, projects["proart"], item["ean"], json.dumps(item))
+            print()
+            store_page(connection, project, item["ean"], json.dumps(item))
 
 
-def process_parallel(items, max_workers=4):
+def process_parallel(project, items, model, max_workers=4):
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = {}
         for item in items:
-            item = prepare(item)
+            item = prepare(project, item)
             if item:
-                futures[executor.submit(classify, item)] = item
+                futures[executor.submit(classify, item, model)] = item
         for future in concurrent.futures.as_completed(futures):
             item = futures[future]
             try:
-                item["klassifikation"] = classify(item)
+                item["klassifikation"] = future.result()
             except Exception as e:
                 item["klassifikation"] = {
                     "category": "UNKNOWN",
@@ -140,16 +109,24 @@ def process_parallel(items, max_workers=4):
                     "proposed_new_category": None,
                     "raw_response": str(e),
                 }
+            print(item["ean"])
             print(item["klassifikation"])
-            store_page(connection, projects["proart"], item["ean"], json.dumps(item))
+            print()
+            store_page(connection, project, item["ean"], json.dumps(item))
 
 
 if __name__ == "__main__":
+    model = "phi4-mini"  # OKish, doesn't respect PROPOSED_NEW_CATEGORY?
+    # model = "phi4-mini-reasoning" # Thinking not correctly configured/implemented by Ollama?
+    # model = "gemma3n" # Suspect tokenizer bugs
+    # model = "gemma3" # Suspect tokenizer bugs
+    # model = "qwen3"
     with sqlite3.connect("data/rag.db") as connection:
         store_projects(connection, ["proart"])
         projects = load_projects(connection)
-    # intro = "Check the following product description for incomplete or inconsistent information:"
     with open("data/proartsubscriber.json", "r") as file:
-        items = json.load(file)
-        # process_serial(items)
-        process_parallel(items)
+        items = [
+            item for item in json.load(file) if item["hersteller"]["name"] == "Ralston"
+        ]
+        # process_serial(projects["proart"], items, model)
+        process_parallel(projects["proart"], items, model)

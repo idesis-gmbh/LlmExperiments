@@ -3,9 +3,9 @@ import urllib.request
 from urllib.error import HTTPError
 
 
-def embed_one(tip, document_or_query):
+def embed_one(tip, document_or_query, model="bge-m3"):
     # model = "nomic-embed-text"
-    model = "bge-m3"
+    # model = "bge-m3"
     # model = "qwen3-embedding"
     prompt = tip + document_or_query
     try:
@@ -22,9 +22,9 @@ def embed_one(tip, document_or_query):
     return {"type": "embedding", "status": status, "data": embedding}
 
 
-def embed_multiple(tip, documents_or_queries):
+def embed_multiple(tip, documents_or_queries, model="bge-m3"):
     # model = "nomic-embed-text"
-    model = "bge-m3"
+    # model = "bge-m3"
     # model = "qwen3-embedding"
     inputs = [tip + document_or_query for document_or_query in documents_or_queries]
     try:
@@ -41,15 +41,16 @@ def embed_multiple(tip, documents_or_queries):
     return {"type": "embeddings", "status": status, "data": embeddings}
 
 
-def generate_stream(prompt):
+def generate_stream(prompt, model="qwen3"):
+    # model = "magistral"
+    # model = "qwen3"
+    # model = "gpt-oss"
     try:
         with urllib.request.urlopen(
             "http://localhost:11434/api/generate",
-            data=json.dumps(
-                # {"model": "magistral", "prompt": prompt, "stream": True}
-                {"model": "qwen3", "prompt": prompt, "stream": True}
-                # {"model": "gpt-oss", "prompt": prompt, "stream": True}
-            ).encode("utf-8"),
+            data=json.dumps({"model": model, "prompt": prompt, "stream": True}).encode(
+                "utf-8"
+            ),
         ) as response:
             status = response.status
             for line in response:
@@ -72,15 +73,16 @@ def generate_stream(prompt):
         yield {"type": "error", "status": status, "data": None}
 
 
-def generate(prompt):
+def generate(prompt, model="qwen3"):
+    # model = "magistral"
+    # model = "qwen3"
+    # model = "gpt-oss"
     try:
         with urllib.request.urlopen(
             "http://localhost:11434/api/generate",
-            data=json.dumps(
-                # {"model": "magistral", "prompt": prompt, "stream": False}
-                {"model": "qwen3", "prompt": prompt, "stream": False}
-                # {"model": "gpt-oss", "prompt": prompt, "stream": False}
-            ).encode("utf-8"),
+            data=json.dumps({"model": model, "prompt": prompt, "stream": False}).encode(
+                "utf-8"
+            ),
         ) as response:
             status = response.status
             thinking = ""
@@ -118,12 +120,13 @@ def assemble_messages(system_prompt, user_prompt):
     return messages
 
 
-def chat_stream(messages, tools=None):
+def chat_stream(messages, tools=None, model="qwen3"):
+    # model = "magistral"
+    # model = "qwen3"
+    # model = "gpt-oss"
     try:
         payload = {
-            # "model": "magistral",
-            "model": "qwen3",
-            # "model": "gpt-oss",
+            "model": model,
             "messages": messages,
             "stream": True,
         }
@@ -208,12 +211,13 @@ def chat_stream(messages, tools=None):
         yield {"type": "error", "status": status, "data": None}
 
 
-def chat(messages, tools=None):
+def chat(messages, tools=None, model="qwen3"):
+    # model = "magistral"
+    # model = "qwen3"
+    # model = "gpt-oss"
     try:
         payload = {
-            # "model": "magistral",
-            "model": "qwen3",
-            # "model": "gpt-oss",
+            "model": model,
             "messages": messages,
             "stream": False,
         }
@@ -271,3 +275,46 @@ def chat(messages, tools=None):
         {"type": "tooling", "status": status, "data": json.dumps(tooling)},
         {"type": "content", "status": status, "data": content},
     ]
+
+
+def run_chat(user_prompt, model, debug):
+    if debug:
+        print(user_prompt)
+    messages = assemble_messages(None, user_prompt)
+    content = ""
+    for event in chat(messages, model=model):
+        assert event["status"] == 200
+        if event["type"] == "content":
+            content += event["data"]
+        if debug:
+            print(event["type"], event["data"])
+    return content
+
+
+def run_chat_stream(user_prompt, model, debug):
+    if debug:
+        print(user_prompt)
+    messages = assemble_messages(None, user_prompt)
+    event_type = None
+    content = ""
+    for event in chat_stream(messages, model=model):
+        assert event["status"] == 200
+        if event["type"] != event_type:
+            if debug:
+                print(f"{event['type']} ", end="")
+            event_type = event["type"]
+        if debug:
+            print(event["data"], end="")
+        if event["type"] == "content":
+            content += event["data"]
+    return content
+
+
+def load_json_response(response):
+    if response.startswith("```"):
+        response = response[3:]
+        if response.startswith("json"):
+            response = response[4:]
+        if response.endswith("```"):
+            response = response[:-3]
+    return json.loads(response)
