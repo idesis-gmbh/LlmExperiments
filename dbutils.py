@@ -57,7 +57,7 @@ def store_page(connection, project_id, page_name, markdown):
     cursor = connection.cursor()
     page_id = list(
         cursor.execute(
-            "SELECT page_id FROM pages WHERE project_id = ? AND name = ?",
+            "SELECT id FROM pages WHERE project_id = ? AND name = ?",
             [project_id, page_name],
         )
     )
