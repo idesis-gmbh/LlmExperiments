@@ -64,6 +64,12 @@ def search_table(query):
     return format_for_table(filtered), filtered
 
 
+def reload_data():
+    global data
+    data = load_data()
+    return format_for_table(data), data, ""
+
+
 with gr.Blocks(title="JSON Table Browser") as demo:
     gr.Markdown("# JSON Table Browser")
     filtered_state = gr.State(value=data)
@@ -71,6 +77,7 @@ with gr.Blocks(title="JSON Table Browser") as demo:
         search_box = gr.Textbox(
             label="Search", placeholder="Filter by key or JSON content..."
         )
+        reload_button = gr.Button("Reload", scale=0)
     with gr.Row():
         with gr.Column(scale=1):
             table = gr.Dataframe(
@@ -86,6 +93,8 @@ with gr.Blocks(title="JSON Table Browser") as demo:
         search_table, inputs=[search_box], outputs=[table, filtered_state]
     )
     table.select(display_json, inputs=[filtered_state], outputs=[json_viewer])
+    reload_button.click(reload_data, outputs=[table, filtered_state, search_box])
+
 
 if __name__ == "__main__":
     demo.launch()

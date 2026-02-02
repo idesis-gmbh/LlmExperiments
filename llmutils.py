@@ -120,7 +120,7 @@ def assemble_messages(system_prompt, user_prompt):
     return messages
 
 
-def chat_stream(messages, tools=None, model="qwen3"):
+def chat_stream(messages, model="qwen3", think=None, format=None, tools=None):
     # model = "magistral"
     # model = "qwen3"
     # model = "gpt-oss"
@@ -130,6 +130,10 @@ def chat_stream(messages, tools=None, model="qwen3"):
             "messages": messages,
             "stream": True,
         }
+        if think:
+            payload["think"] = think
+        if format:
+            payload["format"] = format
         if tools:
             payload["tools"] = [tool["description"] for tool in tools]
         pending = False
@@ -208,10 +212,11 @@ def chat_stream(messages, tools=None, model="qwen3"):
                             "data": json.dumps(tooling),
                         }
     except HTTPError as e:
+        print("HTTPError", e)
         yield {"type": "error", "status": status, "data": None}
 
 
-def chat(messages, tools=None, model="qwen3"):
+def chat(messages, model="qwen3", think=None, format=None, tools=None):
     # model = "magistral"
     # model = "qwen3"
     # model = "gpt-oss"
@@ -221,6 +226,10 @@ def chat(messages, tools=None, model="qwen3"):
             "messages": messages,
             "stream": False,
         }
+        if think:
+            payload["think"] = think
+        if format:
+            payload["format"] = format
         if tools:
             payload["tools"] = [tool["description"] for tool in tools]
         pending = False
@@ -277,12 +286,12 @@ def chat(messages, tools=None, model="qwen3"):
     ]
 
 
-def run_chat(user_prompt, model, debug):
+def run_chat(user_prompt, model, think, format, debug):
     if debug:
         print(user_prompt)
     messages = assemble_messages(None, user_prompt)
     content = ""
-    for event in chat(messages, model=model):
+    for event in chat(messages, model=model, think=think, format=format):
         assert event["status"] == 200
         if event["type"] == "content":
             content += event["data"]
@@ -291,13 +300,13 @@ def run_chat(user_prompt, model, debug):
     return content
 
 
-def run_chat_stream(user_prompt, model, debug):
+def run_chat_stream(user_prompt, model, think, format, debug):
     if debug:
         print(user_prompt)
     messages = assemble_messages(None, user_prompt)
     event_type = None
     content = ""
-    for event in chat_stream(messages, model=model):
+    for event in chat_stream(messages, model=model, think=think, format=format):
         assert event["status"] == 200
         if event["type"] != event_type:
             if debug:

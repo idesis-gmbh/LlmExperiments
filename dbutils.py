@@ -1,5 +1,6 @@
 import bz2
 from itertools import batched
+import json
 import sqlite3
 import zlib
 import numpy as np
@@ -37,6 +38,18 @@ def store_pages(connection, projects, pages):
         ],
     )
     connection.commit()
+
+
+def load_pages(connection, project_id):
+    cursor = connection.cursor()
+    rows = list(
+        cursor.execute(
+            "SELECT markdown FROM pages WHERE project_id = ?",
+            [project_id],
+        )
+    )
+    connection.commit()
+    return [row[0] for row in rows]
 
 
 def update_page_status_html(cursor, page_id, status, html):
@@ -78,15 +91,15 @@ def store_page(connection, project_id, page_name, markdown):
 
 def load_page(connection, project_id, page_name):
     cursor = connection.cursor()
-    markdown = list(
+    rows = list(
         cursor.execute(
             "SELECT markdown FROM pages WHERE project_id = ? AND name = ?",
             [project_id, page_name],
         )
     )
     connection.commit()
-    assert len(markdown) <= 1
-    return markdown[0][0] if markdown else None
+    assert len(rows) <= 1
+    return rows[0][0] if rows else None
 
 
 def load_chunks(connection, page_id=None):
@@ -412,3 +425,62 @@ def query_sqlite(query, parameters):
             rows.append(row)
         connection.commit()
         return rows
+
+
+def get_nesting_depth(obj, depth=0):
+    if not isinstance(obj, (dict, list)) or not obj:
+        return depth
+    elif isinstance(obj, dict):
+        return max(get_nesting_depth(value, depth + 1) for value in obj.values())
+    elif isinstance(obj, list):
+        return max(get_nesting_depth(value, depth + 1) for value in obj)
+
+
+def count_leaf_nodes(obj):
+    if not isinstance(obj, (dict, list)):
+        return 1
+    elif isinstance(obj, dict):
+        return sum(count_leaf_nodes(value) for value in obj.values())
+    elif isinstance(obj, list):
+        return sum(count_leaf_nodes(value) for value in obj)
+    return 0
+
+
+def get_text_length(obj):
+    if isinstance(obj, str):
+        return len(obj)
+    elif isinstance(obj, dict):
+        return sum(get_text_length(value) for value in obj.values())
+    elif isinstance(obj, list):
+        return sum(get_text_length(value) for value in obj)
+    return 0
+
+
+def interest_score(record):
+    nesting_score = min(get_nesting_depth(record) / 5, 1.0)
+    leaf_score = min(count_leaf_nodes(record) / 34, 1.0)
+    text_score = min(get_text_length(record) / 2000, 1.0)
+    return nesting_score * 0.4 + leaf_score * 0.3 + text_score * 0.3
+
+
+if __name__ == "__main__":
+    with sqlite3.connect("data/rag.db") as connection:
+        store_projects(connection, ["proart"])
+        projects = load_projects(connection)
+    with open("data/proartsubscriber.json", "r") as file:
+        items = [item for item in json.load(file)]
+        scores = [(index, interest_score(item)) for index, item in enumerate(items)]
+        scores.sort(key=lambda item: item[1])
+        sample_indices = []
+        for percentile in [0, 20, 40, 60, 80, 95]:
+            start = int(len(scores) * percentile / 100)
+            end = int(len(scores) * (percentile + 5) / 100)
+            sample_indices.extend([index for index, _ in scores[start:end][:10]])
+        for index in sample_indices:
+            items[index]["interest_score"] = interest_score(items[index])
+            store_page(
+                connection,
+                projects["proart"],
+                items[index]["ean"],
+                json.dumps(items[index]),
+            )
