@@ -154,8 +154,14 @@ def classify(
     think,
     debug=False,
 ):
+    classification = item.pop("klassifikation")
+    rating_b2c = item.pop("bewertung_b2c")
+    rating_b2b = item.pop("bewertung_b2b")
     product_categories, prompt = assemble_prompt(item)
     response = run_chat_stream(prompt, model, think, "json", debug)
+    item["klassifikation"] = classification
+    item["bewertung_b2c"] = rating_b2c
+    item["bewertung_b2b"] = rating_b2b
     return evaluate_response(product_categories, response)
 
 
@@ -494,8 +500,14 @@ def evaluate_b2c_rating_error_en(error):
 
 
 def rate_b2c(assemble_prompt, evaluate_response, item, model, think, debug=False):
+    classification = item.pop("klassifikation")
+    rating_b2c = item.pop("bewertung_b2c")
+    rating_b2b = item.pop("bewertung_b2b")
     prompt = assemble_prompt(item)
     response = run_chat_stream(prompt, model, think, "json", debug)
+    item["klassifikation"] = classification
+    item["bewertung_b2c"] = rating_b2c
+    item["bewertung_b2b"] = rating_b2b
     return evaluate_response(response)
 
 
@@ -678,8 +690,14 @@ def evaluate_b2b_rating_error_en(error):
 
 
 def rate_b2b(assemble_prompt, evaluate_response, item, model, think, debug=False):
+    classification = item.pop("klassifikation")
+    rating_b2c = item.pop("bewertung_b2c")
+    rating_b2b = item.pop("bewertung_b2b")
     prompt = assemble_prompt(item)
     response = run_chat_stream(prompt, model, think, "json", debug)
+    item["klassifikation"] = classification
+    item["bewertung_b2c"] = rating_b2c
+    item["bewertung_b2b"] = rating_b2b
     return evaluate_response(response)
 
 
@@ -825,3 +843,57 @@ def rate_b2c_parallel(
             except Exception as error:
                 rating = evaluate_error(error)
             follow_up(connection, project, item, model, "bewertung_b2c", rating)
+
+
+def rate_b2b_serial(
+    assemble_prompt, evaluate_response, connection, project, items, model, think
+):
+    for item in items:
+        item = prepare(item, model)
+        if item:
+            for _ in range(3):
+                rating = rate_b2c(
+                    assemble_prompt,
+                    evaluate_response,
+                    item,
+                    model,
+                    think,
+                    debug=True,
+                )
+                follow_up(connection, project, item, model, "bewertung_b2b", rating)
+
+
+def rate_b2b_parallel(
+    assemble_prompt,
+    evaluate_response,
+    evaluate_error,
+    connection,
+    project,
+    items,
+    model,
+    think,
+    max_workers=4,
+):
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {}
+        for item in items:
+            item = prepare(item, model)
+            if item:
+                for _ in range(3):
+                    futures[
+                        executor.submit(
+                            rate_b2b,
+                            assemble_prompt,
+                            evaluate_response,
+                            item,
+                            model,
+                            think,
+                        )
+                    ] = item
+        for future in concurrent.futures.as_completed(futures):
+            item = futures[future]
+            try:
+                rating = future.result()
+            except Exception as error:
+                rating = evaluate_error(error)
+            follow_up(connection, project, item, model, "bewertung_b2b", rating)
